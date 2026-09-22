@@ -626,6 +626,20 @@ describe("think messengers core", () => {
     expect(attachment.raw).toBeDefined();
   });
 
+  it("copies only the view's bytes when an adapter returns a Buffer", async () => {
+    const pool = new Uint8Array([0, 0, 104, 105, 0, 0]);
+    const attachment = toMessengerAttachment({
+      fetchData: () => Promise.resolve(Buffer.from(pool.buffer, 2, 2)),
+      mimeType: "text/plain",
+      name: "hi.txt",
+      type: "file"
+    });
+
+    const data = await attachment.fetch?.();
+    expect(data).toBeInstanceOf(ArrayBuffer);
+    expect(new TextDecoder().decode(data)).toBe("hi");
+  });
+
   it("leaves attachment id undefined when fetchMetadata has no known id key", () => {
     const attachment = toMessengerAttachment({
       fetchMetadata: { region: "us-east" },

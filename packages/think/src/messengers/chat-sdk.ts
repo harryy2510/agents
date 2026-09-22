@@ -855,6 +855,13 @@ export function toMessengerAttachment(
           if (!data) {
             return new ArrayBuffer(0);
           }
+          // `chat` widened `Attachment.fetchData` to resolve
+          // `Buffer | ArrayBuffer` inside the `^4.31.0` range this package
+          // depends on. An ArrayBuffer carries no `buffer`/`byteOffset`, so
+          // the view copy below throws on one.
+          if (data instanceof ArrayBuffer) {
+            return data;
+          }
           const copy = data.buffer.slice(
             data.byteOffset,
             data.byteOffset + data.byteLength
