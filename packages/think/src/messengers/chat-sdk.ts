@@ -123,6 +123,15 @@ export interface ChatSdkMessengerEventInput {
   eventKind: MessengerEventKind;
   message?: ChatMessage;
   raw?: unknown;
+  /**
+   * Earlier messages the Chat SDK's concurrency strategy folded into this
+   * one, oldest first, taken from `MessageContext.skipped`. The `burst` and
+   * `queue` strategies deliver only the newest message of a run and report
+   * the rest here. They are the sender's own words for this turn rather than
+   * prior history, so a custom `toEvent` should keep them with the message it
+   * builds; {@link defaultChatSdkEvent} does.
+   */
+  skipped?: readonly ChatMessage[];
   thread: ChatThread;
 }
 
@@ -360,7 +369,7 @@ export class ThinkMessengerRuntime {
       userName: this.definitions[0]?.userName ?? "think"
     } satisfies ChatConfig<Record<string, Adapter>>);
 
-    chat.onDirectMessage(async (thread, message) => {
+    chat.onDirectMessage(async (thread, message, _channel, context) => {
       const definition = this.definitionForThread(thread);
       if (!definition) return;
       if (definition.respondTo.includes("direct-message")) {
@@ -369,6 +378,7 @@ export class ThinkMessengerRuntime {
           await this.toEvent(definition, {
             eventKind: "direct-message",
             message,
+            skipped: context?.skipped,
             thread
           }),
           thread
@@ -376,7 +386,7 @@ export class ThinkMessengerRuntime {
       }
     });
 
-    chat.onNewMention(async (thread, message) => {
+    chat.onNewMention(async (thread, message, context) => {
       const definition = this.definitionForThread(thread);
       if (!definition) return;
       if (definition.subscribeOnMention) {
@@ -388,6 +398,7 @@ export class ThinkMessengerRuntime {
           await this.toEvent(definition, {
             eventKind: "mention",
             message,
+            skipped: context?.skipped,
             thread
           }),
           thread
@@ -395,7 +406,7 @@ export class ThinkMessengerRuntime {
       }
     });
 
-    chat.onSubscribedMessage(async (thread, message) => {
+    chat.onSubscribedMessage(async (thread, message, context) => {
       const definition = this.definitionForThread(thread);
       if (!definition) return;
       if (
@@ -407,6 +418,7 @@ export class ThinkMessengerRuntime {
           await this.toEvent(definition, {
             eventKind: message.isMention ? "mention" : "subscribed-message",
             message,
+            skipped: context?.skipped,
             thread
           }),
           thread
@@ -751,8 +763,20 @@ export function defaultChatSdkEvent(
 ): MessengerEvent {
   const message = input.message && toMessengerMessage(input.message);
   if (message) {
+    const skipped = input.skipped ?? [];
+    // The skipped messages precede this one and were never answered, so they
+    // read as the earlier lines of the same turn. Dropping them would leave
+    // the model replying to the last fragment of a burst on its own.
+    message.attachments = [
+      ...skipped.flatMap((entry) =>
+        entry.attachments.map(toMessengerAttachment)
+      ),
+      ...message.attachments
+    ];
     message.text = resolveSelfMention(
-      message.text,
+      [...skipped.map((entry) => entry.text), message.text]
+        .filter(Boolean)
+        .join("\n"),
       definition.adapter.botUserId,
       definition.userName
     );

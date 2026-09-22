@@ -5,7 +5,7 @@ import type {
   FiberRecoveryResult
 } from "agents";
 import { getAgentByName } from "agents";
-import type { Adapter } from "chat";
+import type { Adapter, Attachment } from "chat";
 import { describe, expect, it } from "vitest";
 import {
   chatSdkMessenger,
@@ -567,6 +567,63 @@ describe("think messengers core", () => {
     expect(event.message?.text).toBe("@think_bot hi friend");
     expect(toMessengerUserMessage(event).parts).toEqual([
       { type: "text", text: "Ada Lovelace: @think_bot hi friend" }
+    ]);
+  });
+
+  it("folds messages skipped by the concurrency strategy into the event, oldest first", () => {
+    const [definition] = normalizeMessengers({
+      slack: chatSdkMessenger({
+        adapter: fakeAdapter({ botUserId: "U0BD9EYL52S" }),
+        provider: "slack",
+        userName: "think_bot",
+        verifyWebhook: false
+      })
+    });
+
+    const event = defaultChatSdkEvent(definition!, {
+      eventKind: "mention",
+      message: fakeMessage("and keep it short"),
+      skipped: [
+        fakeMessage("@U0BD9EYL52S summarize the thread"),
+        fakeMessage("")
+      ],
+      thread: fakeThread("slack:C123")
+    });
+
+    expect(event.message?.text).toBe(
+      "@think_bot summarize the thread\nand keep it short"
+    );
+  });
+
+  it("carries attachments from skipped messages onto the answered event", () => {
+    const [definition] = normalizeMessengers({
+      slack: chatSdkMessenger({
+        adapter: fakeAdapter(),
+        provider: "slack",
+        userName: "think_bot",
+        verifyWebhook: false
+      })
+    });
+
+    const event = defaultChatSdkEvent(definition!, {
+      eventKind: "mention",
+      message: fakeMessage("what is this?"),
+      skipped: [
+        fakeMessage("look", [
+          {
+            fetchMetadata: { fileId: "AgACAgIphoto" },
+            mimeType: "image/jpeg",
+            name: "photo.jpg",
+            type: "image"
+          }
+        ])
+      ],
+      thread: fakeThread("slack:C123")
+    });
+
+    expect(event.message?.text).toBe("look\nwhat is this?");
+    expect(event.message?.attachments.map((entry) => entry.name)).toEqual([
+      "photo.jpg"
     ]);
   });
 
@@ -1205,9 +1262,9 @@ function fakeAdapter(overrides: Partial<Adapter> = {}): Adapter {
   } as Adapter;
 }
 
-function fakeMessage(text: string) {
+function fakeMessage(text: string, attachments: Attachment[] = []) {
   return {
-    attachments: [],
+    attachments,
     author: {
       fullName: "Ada Lovelace",
       isBot: false,
