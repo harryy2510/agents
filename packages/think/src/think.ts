@@ -318,9 +318,13 @@ import type { CreateFetchToolsOptions, FetchToolEvent } from "./tools/fetch";
 import { truncatePausedExecutionOutput } from "./tools/execute";
 import { ExtensionManager, sanitizeName } from "./extensions/manager";
 import { ThinkMessengerRuntime } from "./messengers/chat-sdk";
-import { MESSENGER_REPLY_FIBER_NAME } from "./messengers";
+import {
+  DEFAULT_MESSENGER_CONCURRENCY,
+  MESSENGER_REPLY_FIBER_NAME
+} from "./messengers";
 import type {
   DeliveryKind,
+  MessengerConcurrency,
   MessengerContext,
   MessengerDeliverySurface,
   ThinkMessengers,
@@ -345,7 +349,12 @@ export type {
   NormalizedChannelDefinition,
   ThinkChannels
 } from "./channels";
-export type { DeliveryKind, DeliveryTag } from "./messengers";
+export { DEFAULT_MESSENGER_CONCURRENCY } from "./messengers";
+export type {
+  DeliveryKind,
+  DeliveryTag,
+  MessengerConcurrency
+} from "./messengers";
 export { ThinkSession, ThinkSession as Session } from "./session";
 export type {
   CompactAfterOptions,
@@ -2874,6 +2883,20 @@ export class Think<
    * @default "queue"
    */
   messageConcurrency: MessageConcurrency = "queue";
+
+  /**
+   * Controls how the Chat SDK runtime treats a messenger message that
+   * arrives on a thread whose handler is already running.
+   *
+   * Separate from {@link messageConcurrency}, which governs submits on this
+   * agent's own chat surface. This one is handed to the `Chat` instance the
+   * messenger runtime creates, so it decides whether quick successive lines
+   * from one sender are debounced into a single reply, queued, answered
+   * concurrently, or dropped.
+   *
+   * @default DEFAULT_MESSENGER_CONCURRENCY
+   */
+  messengerConcurrency: MessengerConcurrency = DEFAULT_MESSENGER_CONCURRENCY;
 
   /**
    * Byte budget for hydrating the persisted transcript into the in-memory

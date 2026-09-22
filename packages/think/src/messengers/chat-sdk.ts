@@ -5,6 +5,8 @@ import type {
   Attachment as ChatAttachment,
   Author as ChatAuthor,
   ChatConfig,
+  ConcurrencyConfig,
+  ConcurrencyStrategy,
   Message as ChatMessage,
   Thread as ChatThread
 } from "chat";
@@ -49,6 +51,25 @@ import {
 } from "./delivery";
 
 export class ThinkMessengerStateAgent extends ChatSdkStateAgent {}
+
+/**
+ * How the Chat SDK runtime treats a message that arrives on a thread whose
+ * handler is already running. See {@link MessengerThinkHost.messengerConcurrency}.
+ */
+export type MessengerConcurrency = ConcurrencyStrategy | ConcurrencyConfig;
+
+/**
+ * Wait out a short burst, then answer once.
+ *
+ * Someone typing several quick lines is usually asking one question, and a
+ * chat platform delivers each line as its own webhook. Holding the first for
+ * 600ms lets the rest arrive and be folded into one reply instead of paying
+ * for a model turn per fragment.
+ */
+export const DEFAULT_MESSENGER_CONCURRENCY: MessengerConcurrency = {
+  debounceMs: 600,
+  strategy: "burst"
+};
 
 export type MessengerRespondTo =
   | "action"
@@ -144,6 +165,12 @@ export interface MessengerThinkTarget {
 
 export interface MessengerThinkHost extends MessengerThinkTarget {
   constructor: { name: string };
+  /**
+   * How the Chat SDK runtime treats a message arriving on a thread whose
+   * handler is already running. Left unset, {@link DEFAULT_MESSENGER_CONCURRENCY}
+   * applies.
+   */
+  messengerConcurrency?: MessengerConcurrency;
   name: string;
   parentPath: ReadonlyArray<{ className: string; name: string }>;
   startFiber(
@@ -350,7 +377,8 @@ export class ThinkMessengerRuntime {
     ) as Record<string, Adapter>;
     const chat = new Chat({
       adapters,
-      concurrency: { debounceMs: 600, strategy: "burst" },
+      concurrency:
+        this.host.messengerConcurrency ?? DEFAULT_MESSENGER_CONCURRENCY,
       state: createChatSdkState({
         agent: ThinkMessengerStateAgent,
         keyShard: (key) => this.shardStateKey(key),

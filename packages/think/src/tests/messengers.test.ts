@@ -9,6 +9,7 @@ import type { Adapter } from "chat";
 import { describe, expect, it } from "vitest";
 import {
   chatSdkMessenger,
+  DEFAULT_MESSENGER_CONCURRENCY,
   defaultChatSdkEvent,
   defaultConversationName,
   resolveSelfMention,
@@ -28,6 +29,7 @@ import {
   ThinkMessengerRuntime,
   toMessengerAttachment,
   toMessengerUserMessage,
+  type MessengerConcurrency,
   type MessengerEvent,
   type MessengerThinkHost
 } from "../messengers";
@@ -144,6 +146,39 @@ describe("think messengers core", () => {
         })
       })
     ).toThrow("Duplicate messenger adapter name");
+  });
+
+  it("keeps the debounced burst window as the default messenger concurrency", () => {
+    expect(DEFAULT_MESSENGER_CONCURRENCY).toEqual({
+      debounceMs: 600,
+      strategy: "burst"
+    });
+  });
+
+  it("takes the messenger concurrency from the host when creating the Chat runtime", () => {
+    let reads = 0;
+    const host: MessengerThinkHost = {
+      ...fakeHost([]),
+      get messengerConcurrency(): MessengerConcurrency {
+        reads += 1;
+        return "concurrent";
+      }
+    };
+    const runtime = new ThinkMessengerRuntime(
+      {
+        fake: chatSdkMessenger({
+          adapter: fakeAdapter(),
+          provider: "fake",
+          userName: "fake_bot",
+          verifyWebhook: false
+        })
+      },
+      host
+    );
+
+    runtime.initialize();
+
+    expect(reads).toBe(1);
   });
 
   it("requires an explicit webhook verification posture", () => {
