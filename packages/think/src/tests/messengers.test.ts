@@ -7,7 +7,7 @@ import type {
 import { getAgentByName } from "agents";
 import { Chat } from "chat";
 import type { Adapter } from "chat";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   chatSdkMessenger,
   defaultChatSdkEvent,
@@ -2407,6 +2407,58 @@ describe("telegram messenger provider", () => {
     const chunks = splitTelegramMessageText(text, 12);
     expect(chunks.every((chunk) => chunk.length <= 12)).toBe(true);
     expect(chunks.join("")).toBe(text);
+  });
+
+  describe("native streaming", () => {
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    async function streamedMethods(
+      nativeStreaming: boolean | undefined
+    ): Promise<string[]> {
+      const methods: string[] = [];
+      vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+        const url = input instanceof Request ? input.url : String(input);
+        const method = url.slice(url.lastIndexOf("/") + 1);
+        methods.push(method);
+        return Response.json({
+          ok: true,
+          result: method.endsWith("Draft")
+            ? true
+            : {
+                chat: { id: 4242, type: "private" },
+                date: 1,
+                from: { first_name: "Bot", id: 1, is_bot: true },
+                message_id: methods.length,
+                text: "Hello world"
+              }
+        });
+      });
+      const { adapter } = telegramMessenger({
+        nativeStreaming,
+        secretToken: "secret",
+        token: "token",
+        userName: "fake_bot"
+      });
+      async function* reply() {
+        yield "Hello";
+        yield " world";
+      }
+      await adapter.stream?.("telegram:4242", reply());
+      return methods;
+    }
+
+    it("streams private replies as drafts when enabled", async () => {
+      const methods = await streamedMethods(true);
+      expect(methods.some((method) => method.endsWith("Draft"))).toBe(true);
+      expect(methods.some((method) => method.startsWith("edit"))).toBe(false);
+    });
+
+    it("keeps post-and-edit by default", async () => {
+      const methods = await streamedMethods(undefined);
+      expect(methods.some((method) => method.endsWith("Draft"))).toBe(false);
+    });
   });
 });
 

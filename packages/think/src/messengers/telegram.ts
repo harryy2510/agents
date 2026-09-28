@@ -16,6 +16,13 @@ export interface TelegramMessengerOptions extends Omit<
   apiBaseUrl?: string;
   apiUrl?: string;
   mode?: TelegramAdapterConfig["mode"];
+  /**
+   * Stream private-chat replies as native Telegram drafts instead of posting
+   * a placeholder and editing it. Forwarded to the adapter, where it is
+   * opt-in from `@chat-adapter/telegram` 4.38.0; earlier adapters always
+   * use drafts in private chats. Groups always use post-and-edit.
+   */
+  nativeStreaming?: boolean;
   secretToken?: string;
   token: string;
   userName: string;
@@ -43,10 +50,14 @@ export function telegramMessenger(
   }
 
   const adapter = createTelegramAdapter({
+    // Past the check above, a missing secretToken means Think verifies the
+    // webhook itself (or the caller opted out), so the adapter must not.
+    allowUnverifiedWebhooks: !options.secretToken,
     apiBaseUrl: options.apiBaseUrl,
     apiUrl: options.apiUrl,
     botToken: options.token,
     mode: options.mode ?? "webhook",
+    nativeStreaming: options.nativeStreaming,
     secretToken: options.secretToken,
     userName: options.userName
   });
